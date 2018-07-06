@@ -2,8 +2,10 @@ from flask import (flash, jsonify)
 import json
 from simhash import Simhash
 import redis
-import urllib3
 import datetime
+import urllib3
+from wayback_discover_diff.parallel_get import multi_get
+from celery.contrib import rdb
 
 
 class Discover():
@@ -43,17 +45,21 @@ class Discover():
                 if total == 0:
                     raise ValueError
                 snapshots.pop(0)
-                redis_db = redis.StrictRedis(host="localhost", port=6379, db=0)
-                for i, snapshot in enumerate(snapshots):
-
-                    self.update_state(state='PENDING',
-                                      meta={'job_id': self.request.id,
-                                            'info': str(i) + ' out of ' + str(total) + ' captures have been processed',
-                                            })
-
-                    r = http.request('GET', 'https://web.archive.org/web/' + snapshot[0] + '/' + url)
-                    temp_simhash = Simhash(r.data.decode('utf-8'), simhash_size).value
-                    redis_db.set(url + snapshot[0], temp_simhash)
+                temp_snaps = []
+                rdb.set_trace()
+                for snapshot in snapshots:
+                    temp_snaps.append(snapshot[0])
+                    parallel_req = multi_get(temp_snaps, url, simhash_size)
+                # redis_db = redis.StrictRedis(host="localhost", port=6379, db=0)
+                # for i, snapshot in enumerate(snapshots):
+                #     self.update_state(state='PENDING',
+                #                       meta={'job_id': self.request.id,
+                #                             'info': str(i) + ' out of ' + str(total) + ' captures have been processed',
+                #                             })
+                #
+                #     r = http.request('GET', 'https://web.archive.org/web/' + snapshot[0] + '/' + url)
+                #     temp_simhash = Simhash(r.data.decode('utf-8'), simhash_size).value
+                #     redis_db.set(url + snapshot[0], temp_simhash)
             except (ValueError) as e:
                 return json.dumps({'Message': 'Failed to fetch snapshots, please try again.'})
             time_ended = datetime.datetime.now()
